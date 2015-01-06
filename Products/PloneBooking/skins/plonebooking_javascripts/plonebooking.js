@@ -18,7 +18,7 @@ function showPeriodicityResult(url, alt_url, target_id, form_id, waiting_text) {
 
     form = document.getElementById(form_id);
     periodicity_type = getPeriodicityType(form);
-    periodicity_end_date = form['periodicity_form_periodicity_end_date_0'].value;
+    periodicity_end_date = form['periodicity_end_date'].value;
     periodicity_variable = form['periodicity2_x'].value;
 
     query = getPeriodicityQuery(periodicity_type, periodicity_end_date, periodicity_variable);
@@ -224,7 +224,7 @@ Timeline = function(content, start_ts, length_ts, action) {
     var start_width;
     var day_start = start_ts * 1000;
     var day_length = length_ts * 1000;
-    var time_slice = day_length / 300 / 1000;
+    var quarter = day_length / 900 / 1000;
     var container = ID(content);
     var cursor_action = action;
     var timestampInfo = null;
@@ -311,7 +311,7 @@ Timeline = function(content, start_ts, length_ts, action) {
         var x = e.screenX;
         document.body.style.cursor = cursor.style.cursor;
         move = (x - start_x) / cursor.parentNode.offsetWidth;
-        move = Math.floor(move * time_slice) / time_slice;
+        move = Math.floor(move * quarter) / quarter;
         move *= 100;
         if ((start_left + move) < 0 && cursor.style.cursor != 'e-resize')
             move = -start_left;
@@ -319,13 +319,13 @@ Timeline = function(content, start_ts, length_ts, action) {
             move = 100 - (start_left + start_width);
         switch (cursor.style.cursor) {
             case 'w-resize':
-                if ((start_width - move) < (100 / time_slice))
+                if ((start_width - move) < (100 / quarter))
                     return false;
                 cursor.style.left  = (start_left  + move) + '%';
                 cursor.style.width = (start_width - move) + '%';
                 break;
             case 'e-resize':
-                if ((start_width + move) < (100 / time_slice))
+                if ((start_width + move) < (100 / quarter))
                     return false;
                 cursor.style.width = (start_width + move) + '%';
                 break;
@@ -457,7 +457,14 @@ Booking.init = function(){
                   || a_node.className == 'BookingThumb')
                 a_node.onclick = Booking.infoPopup;
             else if (   a_node.className.match(/(^|\s)bookIt($|\s)/))
-                a_node.onclick = Booking.editPopup;
+                if (!jq(a_node).hasClass('disabled')) {
+                    a_node.onclick = Booking.editPopup;
+                }
+                else {
+                    jq(a_node).click( function(e) {
+                        e.preventDefault();
+                    });
+                }
             else if (a_node.parentNode.className == 'monthBookingCell'
                       || a_node.className == "WeekNumber")
                 a_node.onclick = Booking.gotoURL;
@@ -498,10 +505,6 @@ Booking.parseURL = function(url) {
     return query_vars;
 }
 
-/**
- * Refresh the view through an AJAX load
- * @param {String} url link URL
- */
 Booking.refresh = function (url) {
     if (Booking.popup)
         Booking.closePopup();
@@ -511,7 +514,6 @@ Booking.refresh = function (url) {
     addClassName(document.body, 'wait');
     return sendAjaxRequest(query,
         function (xhReq) {
-            // CHECK HERE FOR BROKEN PAGE REFRESH
             ID('plonebooking-view').innerHTML = xhReq.responseText;
             var refresh_filter = false;
 
@@ -524,7 +526,6 @@ Booking.refresh = function (url) {
                 Booking.form.dview.value = query_vars['dview'];
                 Booking.refreshDisplayViewSelection();
 
-			// For refresh booking filter section in the view
             if (Booking.form['refresh-filter'] || !refresh_filter) {
                 Booking.init();
             } else {
@@ -606,9 +607,7 @@ Booking.gotoURL = function(e) {
 */
 
 Booking.refreshCategory = function(category) {
-  if (Booking.form.bcategory) {
-    Booking.form.bcategory.value = category;
-  }
+  Booking.form.bcategory.value = category;
   Booking.form.btype.value = '';
   Booking.form.bookableobject.value = '';
   Booking.refreshFilter(true);
@@ -617,9 +616,7 @@ Booking.refreshCategory = function(category) {
 
 Booking.refreshType = function(type) {
   Booking.form.btype.value = type;
-  if (Booking.form.bcategory) {
-    Booking.form.bcategory.value = '';
-  }
+  Booking.form.bcategory.value = '';
   Booking.form.bookableobject.value = '';
   Booking.refreshFilter(true);
   return false;
@@ -716,7 +713,7 @@ Booking.editPopup = function (e) {
       url = url.replace(/\/[^/]*[?]/, '/booking_ajax_form?');
         if (Booking.form.btype.value)
             url += '&btype=' + Booking.form.btype.value;
-        if (Booking.form.bcategory && Booking.form.bcategory.value)
+        if (Booking.form.bcategory.value)
             url += '&bcategory=' + Booking.form.bcategory.value;
 
         Booking.openPopup(target, { href:  url } );
@@ -756,9 +753,9 @@ Booking.periodicityPopup = function(e) {
     var url = target.href.replace('_form', '_ajax_form');
     if (!target.nodeName == 'A')
         return ;
-    
-    Booking.openPopup(target, { href:  url, oncomplete: plone.jscalendar.init } );
-    
+
+    Booking.openPopup(target, { href:  url } );
+
     return false;
 }
 
@@ -871,6 +868,16 @@ Booking.validate = function (target) {
     return false;
 }
 
+Booking.disallowDate = function(date) {
+  // date is a JS Date object
+  if (  date.getFullYear() == 2015 &&
+        date.getMonth()    == 6 /* July, it's zero-based */ &&
+        date.getDate()     == 3  ) {
+    return true; // disable July 5 2003
+  }
+  return false; // enable other dates
+};
+
 Booking.displayCalendar = function(){
     var container = document.getElementById('filter-calendar');
     if (container && !container.childNodes.length) {
@@ -879,6 +886,8 @@ Booking.displayCalendar = function(){
         Booking.calendar.create(container);
         Booking.calendar.show();
     }
+
+    Booking.calendar.setDisabledHandler(Booking.disallowDate);
 }
 /*
     apply the same function on every booking cell in the calendar view
@@ -897,7 +906,9 @@ Booking.applyToAll = function (target, func, content) {
     Only refresh the booking filter part
 */
 Booking.refreshFilter = function(refresh_view) {
-    refresh_view = refresh_view ? true : false;
+    if (refresh_view == null) {
+        var refresh_view = true;
+    }
 
     var url = Booking.form.center_url.value;
 
